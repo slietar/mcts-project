@@ -11,7 +11,7 @@ PLAYER_PIECE_COUNT = 15
 @dataclass
 class Backgammon:
   board: np.ndarray
-  p0_turn: bool = True # True for white, False for black
+  p0_turn: bool = True
 
   def __init__(self):
     self.board = np.array([
@@ -20,7 +20,7 @@ class Backgammon:
       0, -3, 0, 0, 0, 5,
       -5, 0, 0, 0, 3, 0,
       5, 0, 0, 0, 0, -2,
-      0, #  # captured pieces of player 1 (always <= 0)
+      0, # captured pieces of player 1 (always <= 0)
     ])
 
     assert self.check_integrity()
@@ -65,7 +65,7 @@ class Backgammon:
           ((start_columns - distance) >= 1)
         & (self.board < 0)
         & (self.board[np.maximum(start_columns - distance, 0)] <= 1)
-        & ((self.board[-1] >= 0) | (start_columns == FULL_BOARD_LENGTH + 2))
+        & ((self.board[-1] >= 0) | (start_columns == FULL_BOARD_LENGTH + 1))
       )
 
   def play(self, start_column: int, distance: int):
@@ -97,56 +97,64 @@ class Backgammon:
 
   def print(self):
     COLOR_BRIGHT_BLACK = '\033[90m'
-    COLOR_ITALIC = '\033[3m'
     COLOR_RED = '\033[31m'
     COLOR_RESET = '\033[0m'
-    COLOR_UNDERLINE = '\033[4m'
+
+    # p0 = black
+    # p1 = read
 
     output = ''
     line_count = 5
 
+    width = HALF_BOARD_LENGTH * 2 + 3
+    output += f'{COLOR_BRIGHT_BLACK}{'x' * self.board[0]}{COLOR_RESET}{' ' * (width - self.board[0] + self.board[-1])}{COLOR_RED}{'x' * -self.board[-1]}{COLOR_RESET}\n\n'
+
     for second_half in [False, True]:
       for line in range(line_count):
-        output += ' '
-
         for col in range(HALF_BOARD_LENGTH):
           value = self.board[
             (HALF_BOARD_LENGTH + 1 + col) if second_half else (HALF_BOARD_LENGTH - col)
           ]
 
           threshold = ((line_count - line) if second_half else (line + 1))
+          extra = (abs(value) > line_count) and (threshold == line_count)
+          symbol = f'{abs(value) - line_count + 1}'.rjust(2) if extra else ' x'
 
           if value >= threshold:
-            output += f'{COLOR_BRIGHT_BLACK}x{COLOR_RESET}'
+            output += f'{COLOR_BRIGHT_BLACK}{symbol}{COLOR_RESET}'
           elif value <= -threshold:
-            output += f'{COLOR_RED}x{COLOR_RESET}'
+            output += f'{COLOR_RED}{symbol}{COLOR_RESET}'
           else:
-            output += ' '
+            output += '  '
 
-          if col == QUARTER_BOARD_LENGTH:
-            output += ' | '
+          if col == QUARTER_BOARD_LENGTH - 1:
+            output += ' |'
 
-          output += ' '
+        if line < line_count - 1:
+          output += '\n'
 
+      if not second_half:
         output += '\n'
-
-      output += '\n'
 
     print(output)
 
 
 b = Backgammon()
-b.print()
+
 
 while not (b.p0_won() or b.p1_won()):
-  distance = 4
-  legal_moves = b.legal_moves(distance).nonzero()[0]
-  # print(b.p0_turn)
+  distances = np.random.permutation(6) + 1
 
-  if len(legal_moves) == 0:
+  for distance in distances:
+    legal_moves = b.legal_moves(distance).nonzero()[0]
+
+    if len(legal_moves) == 0:
+      continue
+
+    move = legal_moves[[np.random.randint(len(legal_moves))]]
+    b.play(move, distance)
+    b.print()
+    print('---')
     break
-
-  move = legal_moves[np.random.randint(len(legal_moves))]
-
-  b.play(move, distance)
-  b.print()
+  else:
+    break
