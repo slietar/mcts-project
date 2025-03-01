@@ -1,0 +1,152 @@
+from dataclasses import dataclass
+
+import numpy as np
+
+
+QUARTER_BOARD_LENGTH = 6
+HALF_BOARD_LENGTH = QUARTER_BOARD_LENGTH * 2
+FULL_BOARD_LENGTH = HALF_BOARD_LENGTH * 2
+PLAYER_PIECE_COUNT = 15
+
+@dataclass
+class Backgammon:
+  board: np.ndarray
+  p0_turn: bool = True # True for white, False for black
+
+  def __init__(self):
+    self.board = np.array([
+      0, # captured pieces of player 0 (always >= 0)
+      2, 0, 0, 0, 0, -5,
+      0, -3, 0, 0, 0, 5,
+      -5, 0, 0, 0, 3, 0,
+      5, 0, 0, 0, 0, -2,
+      0, #  # captured pieces of player 1 (always <= 0)
+    ])
+
+    assert self.check_integrity()
+
+  def check_integrity(self):
+    return (
+          (np.maximum(self.board, 0).sum() == PLAYER_PIECE_COUNT)
+      and (np.maximum(-self.board, 0).sum() == PLAYER_PIECE_COUNT)
+      and (self.board[0] >= 0)
+      and (self.board[-1] <= 0)
+      and not (self.p0_won() and self.p0_turn)
+      and not (self.p1_won() and not self.p0_turn)
+    )
+
+  def p0_won(self):
+    return (self.board[:-(QUARTER_BOARD_LENGTH + 1)] <= 0).all()
+
+  def p1_won(self):
+    return (self.board[(QUARTER_BOARD_LENGTH + 1):] >= 0).all()
+
+  def is_finished(self):
+    if self.p0_won():
+      return 0
+    elif self.p1_won():
+      return 1
+    else:
+      return None
+
+  def legal_moves(self, distance: int):
+    start_columns = np.arange(len(self.board))
+
+    if self.p0_turn:
+      return (
+          ((start_columns + distance) < FULL_BOARD_LENGTH + 1)
+        & (self.board > 0)
+        & (self.board[np.minimum(start_columns + distance, len(self.board) - 1)] >= -1)
+        & ((self.board[0] <= 0) | (start_columns == 0))
+      )
+
+    else:
+      return (
+          ((start_columns - distance) >= 1)
+        & (self.board < 0)
+        & (self.board[np.maximum(start_columns - distance, 0)] <= 1)
+        & ((self.board[-1] >= 0) | (start_columns == FULL_BOARD_LENGTH + 2))
+      )
+
+  def play(self, start_column: int, distance: int):
+    assert self.check_integrity()
+    assert self.legal_moves(distance)[start_column]
+
+    if self.p0_turn:
+      end_column = start_column + distance
+      self.board[start_column] -= 1
+
+      if self.board[end_column] == -1:
+        self.board[end_column] = 1
+        self.board[-1] -= 1
+      else:
+        self.board[end_column] += 1
+    else:
+      end_column = start_column - distance
+      self.board[start_column] += 1
+
+      if self.board[end_column] == 1:
+        self.board[end_column] = -1
+        self.board[0] += 1
+      else:
+        self.board[end_column] -= 1
+
+    self.p0_turn = not self.p0_turn
+
+    assert self.check_integrity()
+
+  def print(self):
+    COLOR_BRIGHT_BLACK = '\033[90m'
+    COLOR_ITALIC = '\033[3m'
+    COLOR_RED = '\033[31m'
+    COLOR_RESET = '\033[0m'
+    COLOR_UNDERLINE = '\033[4m'
+
+    output = ''
+    line_count = 5
+
+    for second_half in [False, True]:
+      for line in range(line_count):
+        output += ' '
+
+        for col in range(HALF_BOARD_LENGTH):
+          value = self.board[
+            (HALF_BOARD_LENGTH + 1 + col) if second_half else (HALF_BOARD_LENGTH - col)
+          ]
+
+          threshold = ((line_count - line) if second_half else (line + 1))
+
+          if value >= threshold:
+            output += f'{COLOR_BRIGHT_BLACK}x{COLOR_RESET}'
+          elif value <= -threshold:
+            output += f'{COLOR_RED}x{COLOR_RESET}'
+          else:
+            output += ' '
+
+          if col == QUARTER_BOARD_LENGTH:
+            output += ' | '
+
+          output += ' '
+
+        output += '\n'
+
+      output += '\n'
+
+    print(output)
+
+
+b = Backgammon()
+b.print()
+
+while not (b.p0_won() or b.p1_won()):
+  distance = 4
+  legal_moves = b.legal_moves(distance).nonzero()[0]
+  # print(b.p0_turn)
+
+  if len(legal_moves) == 0:
+    break
+
+  move = legal_moves[np.random.randint(len(legal_moves))]
+
+  b.play(move, distance)
+  b.print()
