@@ -13,7 +13,7 @@ The Backgammon game implemented in this project features:
 
 ## How to Run
 
-1. Clone the repository:
+1. Clone the repository
 
 2. Navigate to the project directory:
 ```bash
