@@ -121,6 +121,7 @@ class Backgammon:
 # Game execution
 b = Backgammon()
 while not b.is_finished():
+    print ("Player black" if b.p0_turn else "Player red")
     distances = np.random.permutation(6) + 1
     for distance in distances:
         legal_moves = b.legal_moves(distance).nonzero()[0]
