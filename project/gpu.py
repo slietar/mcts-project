@@ -6,7 +6,7 @@ from wgpu.utils.compute import compute_with_buffers
 from .game import Backgammon
 
 
-playout_count = 1
+playout_count = 10
 playout_length = 5
 
 random_arr = np.random.rand(100, playout_count, playout_length).astype(np.float32).ravel()
@@ -35,28 +35,21 @@ output = compute_with_buffers(
       3: out_arr,
     },
     output_arrays={
-      2: (len(initial_boards_arr), 'i'),
-      3: (len(out_arr), 'f'),
+      2: (initial_boards_arr.size, 'i'),
+      3: (out_arr.size, 'f'),
     },
     shader=(Path(__file__).parent / 'shader.wgsl').read_text(),
     n=(playout_count, 1, 1),
 )
 
+# print(initial_boards_arr.reshape((2, -1)))
+
 final_boards = np.frombuffer(output[2], dtype=np.int32).reshape((playout_count, -1))
 
-# print(final_boards)
-# print(f'{final_boards[0, 0]:028b}')
 
-# print(random_arr[0])
-# print(np.frombuffer(output[3], dtype=np.float32))
+for board in final_boards:
+  b = Backgammon(board, turn_p0=False)
+  # print(b.legal_moves(4).nonzero()[0])
+  b.print()
 
-
-b = Backgammon()
-# print(b.legal_moves(4).nonzero()[0])
-b.print()
-
-b.board = final_boards[0, :]
-b.turn_p0 = False
-
-b.print()
-print(b.check_integrity())
+  print(f'Integrity: {b.check_integrity()}')

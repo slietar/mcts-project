@@ -6,7 +6,7 @@ const boardSize: u32 = fullBoardLength + 2;
 const playerPieceCount: u32 = 15;
 
 // @group(0) @binding(0)
-// var<storage, read> pieceEncodings: array<u32, ((fullBoardLength + 2) * (playerPieceCount * 2) + 1)>;
+// var<storage, read> pieceEncodings: array<u32, (boardSize * (playerPieceCount * 2) + 1)>;
 
 struct Settings {
   playoutLength: u32,
@@ -20,7 +20,7 @@ var<storage, read> random: array<f32>;
 var<storage, read> settings: Settings;
 
 @group(0) @binding(2)
-var<storage, read_write> initialBoards: array<i32, (fullBoardLength + 2)>;
+var<storage, read_write> initialBoards: array<i32>;
 
 @group(0) @binding(3)
 var<storage, read_write> outArr: array<f32, 1>;
@@ -33,11 +33,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var currentRandomIndex = settings.playoutLength * playoutId;
   var turnP0 = true;
 
-  var board: array<i32, (fullBoardLength + 2)>;
+  var board: array<i32, boardSize>;
 
-  for (var index = 0u; index < fullBoardLength + 2; index += 1u) {
-    board[index] = initialBoards[playoutId * (boardSize) + index];
-    // initialBoards[playoutId * (boardSize) + index] = -1;
+  for (var index = 0u; index < boardSize; index += 1u) {
+    board[index] = initialBoards[playoutId * boardSize + index];
+    // initialBoards[playoutId * boardSize + index] = -1;
   }
 
 
@@ -130,19 +130,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           } else {
             packedMany &= ~endMask;
           }
-
-          // packedP0 = (packedP0 & ~startMask) | (board[startColumn] > 0);
-
-          // initialBoards[moveIndex] = i32(startColumn + 1u);
-          // initialBoards[0] = i32(startColumn);
         }
-
-        // initialBoards[1] = i32(moveCount);
       }
     }
   }
 
-  for (var index = 0u; index < fullBoardLength + 2; index += 1u) {
+  for (var index = 0u; index < boardSize; index += 1u) {
     initialBoards[playoutId * boardSize + index] = board[index];
   }
 }
