@@ -166,24 +166,24 @@ class Backgammon:
     print(output)
 
 
-b = Backgammon()
+if __name__ == '__main__':
+  b = Backgammon()
 
+  while not (b.p0_won() or b.p1_won()):
+    distances = np.random.permutation(6) + 1
 
-while not (b.p0_won() or b.p1_won()):
-  distances = np.random.permutation(6) + 1
+    for distance in distances:
+      legal_moves = b.legal_moves(distance).nonzero()[0]
 
-  for distance in distances:
-    legal_moves = b.legal_moves(distance).nonzero()[0]
+      if len(legal_moves) == 0:
+        continue
 
-    if len(legal_moves) == 0:
-      continue
-
-    move = legal_moves[[np.random.randint(len(legal_moves))]]
-    b.play(move, distance)
-    print('\n' * 5)
-    print(b.compute_hash())
-    b.print()
-    time.sleep(0.3)
-    break
-  else:
-    break
+      move = legal_moves[[np.random.randint(len(legal_moves))]]
+      b.play(move, distance)
+      print('\n' * 5)
+      print(b.compute_hash())
+      b.print()
+      time.sleep(0.3)
+      break
+    else:
+      break
