@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pprint import pprint
 import time
 
 import numpy as np
@@ -16,23 +17,19 @@ TURN_P0_ENCODING = np.random.randint(0, 1 << 64 - 1)
 
 @dataclass(slots=True)
 class Backgammon:
-  board: np.ndarray
-  hash: int
-  turn_p0: bool
+  board: np.ndarray = field(default_factory=(lambda: np.array([
+    0, # captured pieces of player 0 (always >= 0)
+    2, 0, 0, 0, 0, -5,
+    0, -3, 0, 0, 0, 5,
+    -5, 0, 0, 0, 3, 0,
+    5, 0, 0, 0, 0, -2,
+    0, # captured pieces of player 1 (always <= 0)
+  ])))
+  hash: int = field(init=False)
+  turn_p0: bool = True
 
-  def __init__(self):
-    self.board = np.array([
-      0, # captured pieces of player 0 (always >= 0)
-      2, 0, 0, 0, 0, -5,
-      0, -3, 0, 0, 0, 5,
-      -5, 0, 0, 0, 3, 0,
-      5, 0, 0, 0, 0, -2,
-      0, # captured pieces of player 1 (always <= 0)
-    ])
-
-    self.turn_p0 = True
+  def __post_init__(self):
     self.hash = self.compute_hash()
-
     assert self.check_integrity()
 
   def check_integrity(self):
@@ -93,6 +90,31 @@ class Backgammon:
         & (self.board[np.maximum(start_columns - distance, 0)] <= 1)
         & ((self.board[-1] >= 0) | (start_columns == FULL_BOARD_LENGTH + 1))
       )
+
+  def legal_moves_packed(self, distance: int):
+    print(self.legal_moves(distance).nonzero()[0])
+
+    # packed_empty = sum(1 << column for column, value in enumerate(self.board)) if value == 0)
+
+    masks = 1 << np.arange(len(self.board))
+    packed_empty = ((self.board == 0) * masks).sum().item()
+    packed_p0 = ((self.board > 0) * masks).sum().item()
+    packed_many = ((np.abs(self.board) > 1) * masks).sum().item()
+
+    print(f'{packed_empty:028b}')
+    print(f'{packed_p0:028b}')
+    print(f'{packed_many:028b}')
+
+    x = packed_p0 & (
+        (packed_empty >> distance)
+      | (packed_p0 >> distance)
+      | ~(packed_many >> distance)
+    )
+
+    v = np.array([bool((x >> i) & 1) for i in range(len(self.board))])
+    print(v.nonzero()[0])
+
+    print(f'{x:028b}')
 
   def play(self, start_column: int, distance: int):
     assert self.check_integrity()
@@ -169,21 +191,34 @@ class Backgammon:
 if __name__ == '__main__':
   b = Backgammon()
 
-  while not (b.p0_won() or b.p1_won()):
-    distances = np.random.permutation(6) + 1
+  # print(b.legal_moves(5).nonzero())
+  # print(b.legal_moves_packed(5))
 
-    for distance in distances:
-      legal_moves = b.legal_moves(distance).nonzero()[0]
+  # print({
+  #   d: b.legal_moves(d).sum() for d in range(1, 7)
+  # })
 
-      if len(legal_moves) == 0:
-        continue
+  # b = Backgammon()
+  # step = 0
 
-      move = legal_moves[[np.random.randint(len(legal_moves))]]
-      b.play(move, distance)
-      print('\n' * 5)
-      print(b.compute_hash())
-      b.print()
-      time.sleep(0.3)
-      break
-    else:
-      break
+  # while not (b.p0_won() or b.p1_won()):
+  #   distances = np.random.permutation(6) + 1
+
+  #   for distance in distances:
+  #     legal_moves = b.legal_moves(distance).nonzero()[0]
+
+  #     if len(legal_moves) == 0:
+  #       continue
+
+  #     move = legal_moves[[np.random.randint(len(legal_moves))]]
+  #     b.play(move, distance)
+  #     # print('\n' * 5)
+  #     # print(b.compute_hash())
+  #     # b.print()
+  #     # time.sleep(0.3)
+  #     step += 1
+  #     break
+  #   else:
+  #     break
+
+  # print(step)

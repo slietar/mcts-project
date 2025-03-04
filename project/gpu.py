@@ -1,17 +1,18 @@
 from pathlib import Path
+
 import numpy as np
 from wgpu.utils.compute import compute_with_buffers
 
-
 from .game import Backgammon
+
 
 playout_count = 1
 playout_length = 5
 
-random_arr = np.random.randint(0, 6, (playout_count, playout_length), dtype=np.uint32).ravel()
+random_arr = np.random.rand(100, playout_count, playout_length).astype(np.float32).ravel()
 
 settings_arr = np.array([
-  playout_length
+  playout_length,
 ], dtype=np.uint32)
 
 initial_boards_arr = np.array([
@@ -23,41 +24,39 @@ initial_boards_arr = np.array([
     0,
 ], dtype=np.int32)[None, :].repeat(playout_count, axis=0).ravel()
 
+out_arr = np.array([0.0], dtype=np.float32)
+
 
 output = compute_with_buffers(
     input_arrays={
       0: random_arr,
       1: settings_arr,
       2: initial_boards_arr,
+      3: out_arr,
     },
-    output_arrays={2: (len(initial_boards_arr), "i")},
+    output_arrays={
+      2: (len(initial_boards_arr), 'i'),
+      3: (len(out_arr), 'f'),
+    },
     shader=(Path(__file__).parent / 'shader.wgsl').read_text(),
     n=(playout_count, 1, 1),
 )
 
-# print(output)
-
-# # get output
-
 final_boards = np.frombuffer(output[2], dtype=np.int32).reshape((playout_count, -1))
 
-print(final_boards)
+# print(final_boards)
+# print(f'{final_boards[0, 0]:028b}')
 
-# # check that results are the same as numpy, we can expect 7 decimal precision
-# all_close = np.allclose(A @ B, C)
-# assert all_close
-# print(f"np.allclose():\n {all_close}\n")
-# print(f"AB - C:\n{A @ B - C}\n")
-# diff_norms = np.linalg.norm(A @ B - C, ord="fro") / np.linalg.norm(A @ B, ord="fro")
-# print(f"||AB - C||_F - ||AB||_F:\n{diff_norms}\n")
-# print(f"C:\n{C}")
+# print(random_arr[0])
+# print(np.frombuffer(output[3], dtype=np.float32))
 
 
 b = Backgammon()
+# print(b.legal_moves(4).nonzero()[0])
 b.print()
 
 b.board = final_boards[0, :]
-b.turn_p0 = True
+b.turn_p0 = False
 
 b.print()
 print(b.check_integrity())
