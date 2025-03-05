@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
 import time
@@ -44,6 +45,9 @@ class Backgammon:
 
   def compute_hash(self):
     return xor(PIECE_ENCODINGS[np.arange(len(self.board)), self.board]) ^ (TURN_P0_ENCODING * self.turn_p0)
+
+  def copy(self):
+    return deepcopy(self)
 
   def p0_won(self):
     return (self.board[:-(QUARTER_BOARD_LENGTH + 1)] <= 0).all()
