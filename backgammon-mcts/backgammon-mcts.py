@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 import random
+from typing import Optional, List
 
 QUARTER_BOARD_LENGTH = 6
 HALF_BOARD_LENGTH = QUARTER_BOARD_LENGTH * 2
@@ -24,9 +25,20 @@ class Backgammon:
         assert self.check_integrity()
 
     def check_integrity(self):
+        piece_count_p0 = np.maximum(self.board, 0).sum()
+        piece_count_p1 = np.maximum(-self.board, 0).sum()
+        
+        if self.is_finished() is not None:
+            return (
+                (piece_count_p0 == PLAYER_PIECE_COUNT)
+                and (piece_count_p1 == PLAYER_PIECE_COUNT)
+                and (self.board[0] >= 0)
+                and (self.board[-1] <= 0)
+            )
+        
         return (
-            (np.maximum(self.board, 0).sum() == PLAYER_PIECE_COUNT)
-            and (np.maximum(-self.board, 0).sum() == PLAYER_PIECE_COUNT)
+            (piece_count_p0 == PLAYER_PIECE_COUNT)
+            and (piece_count_p1 == PLAYER_PIECE_COUNT)
             and (self.board[0] >= 0)
             and (self.board[-1] <= 0)
             and not (self.p0_won() and self.p0_turn)
@@ -118,20 +130,60 @@ class Backgammon:
                 output += '\n'
         print(output)
 
-# Game execution
+class MCTS:
+    def __init__(self, state, iterations=1000):
+        self.state = state
+        self.iterations = iterations
+
+    def run(self):
+        best_move = None
+        max_score = -float('inf')
+
+        for _ in range(self.iterations):
+            state_copy = Backgammon()
+            state_copy.board = np.copy(self.state.board)
+            state_copy.p0_turn = self.state.p0_turn
+
+            while not state_copy.is_finished():
+                distances = np.random.permutation(6) + 1
+                legal_moves = [
+                    (col, dist) for dist in distances
+                    for col in np.nonzero(state_copy.legal_moves(dist))[0]
+                ]
+                if not legal_moves:
+                    break
+
+                move = random.choice(legal_moves)
+                state_copy.play(move[0], move[1])
+
+            result = 1 if state_copy.is_finished() == 0 else 0
+            if result > max_score:
+                max_score = result
+                best_move = move
+
+        return best_move
+
+# Game execution with MCTS for Player Black
 b = Backgammon()
+
 while not b.is_finished():
-    print ("Player black" if b.p0_turn else "Player red")
-    distances = np.random.permutation(6) + 1
-    for distance in distances:
-        legal_moves = b.legal_moves(distance).nonzero()[0]
-        if len(legal_moves) == 0:
-            continue
-        move = random.choice(legal_moves)
-        b.play(move, distance)
-        b.print()
-        print('---')
-        break
+    print("Player black" if b.p0_turn else "Player red")
+    if b.p0_turn:
+        mcts = MCTS(b, iterations=500)
+        move = mcts.run()
+        print(f"MCTS chose move: {move}")
+        b.play(move[0], move[1])
     else:
-        break
+        distances = np.random.permutation(6) + 1
+        for distance in distances:
+            legal_moves = b.legal_moves(distance).nonzero()[0]
+            if len(legal_moves) == 0:
+                continue
+            move = random.choice(legal_moves)
+            b.play(move, distance)
+            break
+
+    b.print()
+    print('---')
+
 print('Game over!')
