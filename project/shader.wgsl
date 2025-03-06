@@ -4,13 +4,19 @@ const halfBoardLength: u32 = quarterBoardLength * 2;
 const fullBoardLength: u32 = halfBoardLength * 2;
 const boardSize: u32 = fullBoardLength + 2;
 const playerPieceCount: u32 = 15;
+const maxDistance: u32 = 6;
 
 // @group(0) @binding(0)
 // var<storage, read> pieceEncodings: array<u32, (boardSize * (playerPieceCount * 2) + 1)>;
 
 struct Settings {
-  playoutLength: u32,
+  maxPlayoutLength: u32,
   // turnP0Encoding: u32,
+}
+
+struct Stats {
+  sumP0Win: atomic<u32>,
+  sumPlayoutLength: atomic<u32>,
 }
 
 @group(0) @binding(0)
@@ -23,21 +29,35 @@ var<storage, read> settings: Settings;
 var<storage, read_write> initialBoards: array<i32>;
 
 @group(0) @binding(3)
-var<storage, read_write> outArr: array<f32, 1>;
+var<storage, read_write> stats: Stats;
+
+
+// n = 0 -> returns the index of the first one bit
+fn indexOfNthOneBit(val: u32, n: u32) -> u32 {
+  var shiftedVal = val;
+  var index = 0u;
+
+  for (var oneIndex = 0u; oneIndex <= n; oneIndex += 1u) {
+    let advance = countTrailingZeros(shiftedVal) + 1u;
+    index += advance;
+    shiftedVal >>= advance;
+  }
+
+  return index - 1u;
+}
 
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let playoutId = gid.x;
 
-  var currentRandomIndex = settings.playoutLength * playoutId;
+  var currentRandomIndex = settings.maxPlayoutLength * playoutId;
   var turnP0 = true;
 
   var board: array<i32, boardSize>;
 
   for (var index = 0u; index < boardSize; index += 1u) {
     board[index] = initialBoards[playoutId * boardSize + index];
-    // initialBoards[playoutId * boardSize + index] = -1;
   }
 
 
@@ -62,8 +82,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
 
-  for (var playoutIndex = 0; playoutIndex < 1; playoutIndex += 1) {
-    let distance = u32(random[currentRandomIndex] * 6.0) + 1u;
+  for (var playoutStep = 0u; playoutStep < settings.maxPlayoutLength; playoutStep += 1u) {
+    let distance = u32(random[currentRandomIndex] * f32(maxDistance)) + 1u;
     // let distance = 4u;
     currentRandomIndex += 1u;
 
@@ -83,30 +103,23 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let moveCount = countOneBits(packedLegal);
 
         if moveCount > 0u {
-          // let moveIndex = moveCount - 1u;
           let moveIndex = u32(random[currentRandomIndex] * f32(moveCount));
           currentRandomIndex += 1u;
 
-          var packedCurrent = packedLegal;
-          var startColumn = 0u;
-
-          for (var currentMoveIndex = 0u; currentMoveIndex <= moveIndex; currentMoveIndex += 1u) {
-            let advance = countTrailingZeros(packedCurrent) + 1u;
-            // initialBoards[currentMoveIndex] = i32(startColumn + advance - 1u);
-            startColumn += advance;
-            packedCurrent >>= advance;
-          }
-
-          startColumn -= 1u;
+          let startColumn = indexOfNthOneBit(packedLegal, moveIndex);
           let endColumn = startColumn + distance;
 
           board[startColumn] -= 1;
-          board[endColumn] += 1;
+
+          if board[endColumn] == -1 {
+            board[endColumn] = 1;
+            board[boardSize - 1u] -= 1;
+          } else {
+            board[endColumn] += 1;
+          }
 
           let startMask = 1u << startColumn;
           let endMask = 1u << endColumn;
-
-          // packedEmpty = board[startColumn] > 0 ? packedEmpty & ~startMask : packedEmpty | startMask;
 
           if board[startColumn] > 1 {
             packedEmpty &= ~startMask;
@@ -133,9 +146,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
       }
     }
+
+    // let wonP0 = (packedP0 & (((1 << quarterBoardLength) - 1) << (quarterBoardLength * 3 + 1))) == packedP0;
+
+    let fourthQuarterMask = (((1u << quarterBoardLength) - 1u) << (quarterBoardLength * 3u + 1u));
+    // let wonP0 = countOneBits(fourthQuarterMask | ~packedP0) == boardSize;
+    let wonP0 = (packedP0 & fourthQuarterMask) == packedP0;
+
+    if wonP0 {
+      atomicAdd(&stats.sumP0Win, 1u);
+      atomicAdd(&stats.sumPlayoutLength, playoutStep + 1u);
+      break;
+    }
   }
 
-  for (var index = 0u; index < boardSize; index += 1u) {
-    initialBoards[playoutId * boardSize + index] = board[index];
-  }
+  // for (var index = 0u; index < boardSize; index += 1u) {
+  //   initialBoards[playoutId * boardSize + index] = board[index];
+  // }
 }

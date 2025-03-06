@@ -12,9 +12,9 @@ QUARTER_BOARD_LENGTH = 6
 HALF_BOARD_LENGTH = QUARTER_BOARD_LENGTH * 2
 FULL_BOARD_LENGTH = HALF_BOARD_LENGTH * 2
 PLAYER_PIECE_COUNT = 15
+BOARD_SIZE = FULL_BOARD_LENGTH + 2
 
 PIECE_ENCODINGS = np.random.randint(0, 1 << 64 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
-TURN_P0_ENCODING = np.random.randint(0, 1 << 64 - 1)
 
 @dataclass(slots=True)
 class Backgammon:
@@ -27,6 +27,7 @@ class Backgammon:
     0, # captured pieces of player 1 (always <= 0)
   ])))
   hash: int = field(init=False)
+  length: int = 0
   turn_p0: bool = True
 
   def __post_init__(self):
@@ -41,10 +42,14 @@ class Backgammon:
       and (self.board[-1] <= 0)
       and not (self.p0_won() and self.turn_p0)
       and not (self.p1_won() and not self.turn_p0)
+      # and (self.hash == self.compute_hash())
     )
 
   def compute_hash(self):
-    return xor(PIECE_ENCODINGS[np.arange(len(self.board)), self.board]) ^ (TURN_P0_ENCODING * self.turn_p0)
+    return xor(PIECE_ENCODINGS[
+      np.arange(len(self.board)),
+      np.abs(self.board[::(1 if self.turn_p0 else -1)]),
+    ])
 
   def copy(self):
     return deepcopy(self)
@@ -55,7 +60,7 @@ class Backgammon:
   def p1_won(self):
     return (self.board[(QUARTER_BOARD_LENGTH + 1):] >= 0).all()
 
-  def is_finished(self):
+  def winner(self):
     if self.p0_won():
       return 0
     elif self.p1_won():
@@ -73,8 +78,7 @@ class Backgammon:
       capturing = old_end_column_values < 0
 
       h = (
-          TURN_P0_ENCODING
-        ^ PIECE_ENCODINGS[start_columns, self.board]
+          PIECE_ENCODINGS[start_columns, self.board]
         ^ PIECE_ENCODINGS[end_columns, old_end_column_values]
         ^ PIECE_ENCODINGS[end_columns, new_end_column_values]
         ^ (PIECE_ENCODINGS[-1, self.board[-1] - 1] * capturing)
@@ -145,6 +149,7 @@ class Backgammon:
 
     self.turn_p0 = not self.turn_p0
     self.hash = self.compute_hash()
+    self.length += 1
 
     assert self.check_integrity()
 
@@ -191,38 +196,41 @@ class Backgammon:
 
     print(output)
 
+  def transpose(self):
+    self.board = -self.board[::-1].copy()
+    self.turn_p0 = not self.turn_p0
+
+    assert self.check_integrity()
+
 
 if __name__ == '__main__':
-  b = Backgammon()
-
-  # print(b.legal_moves(5).nonzero())
-  # print(b.legal_moves_packed(5))
-
   # print({
   #   d: b.legal_moves(d).sum() for d in range(1, 7)
   # })
 
-  # b = Backgammon()
-  # step = 0
+  b = Backgammon()
+  step = 0
 
-  # while not (b.p0_won() or b.p1_won()):
-  #   distances = np.random.permutation(6) + 1
+  while not (b.p0_won() or b.p1_won()):
+    distances = np.random.permutation(6) + 1
 
-  #   for distance in distances:
-  #     legal_moves = b.legal_moves(distance).nonzero()[0]
+    for distance in distances:
+      legal_moves = b.legal_moves(distance).nonzero()[0]
 
-  #     if len(legal_moves) == 0:
-  #       continue
+      if len(legal_moves) == 0:
+        continue
 
-  #     move = legal_moves[[np.random.randint(len(legal_moves))]]
-  #     b.play(move, distance)
-  #     # print('\n' * 5)
-  #     # print(b.compute_hash())
-  #     # b.print()
-  #     # time.sleep(0.3)
-  #     step += 1
-  #     break
-  #   else:
-  #     break
+      move = legal_moves[[np.random.randint(len(legal_moves))]]
+      b.play(move, distance)
+      # print('\n' * 5)
+      # print(b.compute_hash())
+      # b.print()
+      # time.sleep(0.3)
+      step += 1
+      break
+    else:
+      break
 
-  # print(step)
+  b.print()
+
+  print(step, b.winner())
