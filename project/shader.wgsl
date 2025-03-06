@@ -5,6 +5,7 @@ const fullBoardLength: u32 = halfBoardLength * 2;
 const boardSize: u32 = fullBoardLength + 2;
 const playerPieceCount: u32 = 15;
 const maxDistance: u32 = 6;
+const randomNumCountPerMove: u32 = 2;
 
 // @group(0) @binding(0)
 // var<storage, read> pieceEncodings: array<u32, (boardSize * (playerPieceCount * 2) + 1)>;
@@ -17,6 +18,7 @@ struct Settings {
 struct Stats {
   sumP0Win: atomic<u32>,
   sumPlayoutLength: atomic<u32>,
+  out: array<i32>,
 }
 
 @group(0) @binding(0)
@@ -51,7 +53,7 @@ fn indexOfNthOneBit(val: u32, n: u32) -> u32 {
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let playoutId = gid.x;
 
-  var currentRandomIndex = settings.maxPlayoutLength * playoutId;
+  var currentRandomIndex = settings.maxPlayoutLength * playoutId * randomNumCountPerMove;
   var turnP0 = true;
 
   var board: array<i32, boardSize>;
@@ -161,6 +163,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // for (var index = 0u; index < boardSize; index += 1u) {
-  //   initialBoards[playoutId * boardSize + index] = board[index];
+  //   stats.out[index] = board[index];
   // }
 }
