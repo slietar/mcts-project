@@ -165,7 +165,11 @@ class Backgammon:
     line_count = 5
 
     width = HALF_BOARD_LENGTH * 2 + 3
-    output += f'{COLOR_BRIGHT_BLACK}{'o' * self.board[0]}{COLOR_RESET}{' ' * (width - self.board[0] + self.board[-1])}{COLOR_RED}{'o' * -self.board[-1]}{COLOR_RESET}\n\n'
+    output += (
+    f"{COLOR_BRIGHT_BLACK}{'o' * self.board[0]}{COLOR_RESET}"
+    + ' ' * (width - self.board[0] + self.board[-1])
+    + f"{COLOR_RED}{'o' * -self.board[-1]}{COLOR_RESET}\n\n"
+    )
 
     for second_half in [False, True]:
       for line in range(line_count):
