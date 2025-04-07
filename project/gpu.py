@@ -1,6 +1,3 @@
-import dexc
-dexc.install()
-
 from pathlib import Path
 from time import time_ns
 
