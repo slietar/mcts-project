@@ -2,6 +2,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
 import time
+from typing import Optional, Protocol
 
 import numpy as np
 
@@ -13,11 +14,18 @@ HALF_BOARD_LENGTH = QUARTER_BOARD_LENGTH * 2
 FULL_BOARD_LENGTH = HALF_BOARD_LENGTH * 2
 PLAYER_PIECE_COUNT = 15
 BOARD_SIZE = FULL_BOARD_LENGTH + 2
+MAX_DISTANCE = 6
 
-PIECE_ENCODINGS = np.random.randint(0, 1 << 64 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
+PIECE_ENCODINGS = np.random.randint(0, 1 << 6 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
+
+
+class Strategy(Protocol):
+  def play(self, game: 'Game', distance: int) -> Optional[int]:
+    ...
+
 
 @dataclass(slots=True)
-class Backgammon:
+class Game:
   board: np.ndarray = field(default_factory=(lambda: np.array([
     0, # captured pieces of player 0 (always >= 0)
     2, 0, 0, 0, 0, -5,
@@ -45,10 +53,19 @@ class Backgammon:
       # and (self.hash == self.compute_hash())
     )
 
+  # @property
+  # def normalized_board(self):
+  #   return self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1)
+
   def compute_hash(self):
+    print(PIECE_ENCODINGS[
+      np.arange(BOARD_SIZE),
+      self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1),
+    ])
+
     return xor(PIECE_ENCODINGS[
-      np.arange(len(self.board)),
-      np.abs(self.board[::(1 if self.turn_p0 else -1)]),
+      np.arange(BOARD_SIZE),
+      self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1),
     ])
 
   def copy(self):
@@ -69,27 +86,44 @@ class Backgammon:
       return None
 
   def legal_moves(self, distance: int):
+    assert 1 <= distance <= MAX_DISTANCE
+
     start_columns = np.arange(len(self.board))
 
     if self.turn_p0:
       end_columns = np.minimum(start_columns + distance, len(self.board) - 1)
+
+      old_start_column_values = self.board[start_columns]
+      new_start_column_values = old_start_column_values - 1
+
       old_end_column_values = self.board[end_columns]
       new_end_column_values = np.maximum(old_end_column_values + 1, 1)
-      capturing = old_end_column_values < 0
 
-      h = (
-          PIECE_ENCODINGS[start_columns, self.board]
+      capturing = old_end_column_values < 0
+      # print(end_columns[1], old_start_column_values[1], new_start_column_values[1], old_end_column_values[1], new_end_column_values[1], capturing[1])
+
+      print(
+                  PIECE_ENCODINGS[start_columns, old_start_column_values][1],
+        PIECE_ENCODINGS[start_columns, new_start_column_values][1],
+        PIECE_ENCODINGS[end_columns, old_end_column_values][1],
+        PIECE_ENCODINGS[end_columns, new_end_column_values][1]
+      )
+      hashes = (
+          PIECE_ENCODINGS[start_columns, old_start_column_values]
+        ^ PIECE_ENCODINGS[start_columns, new_start_column_values]
         ^ PIECE_ENCODINGS[end_columns, old_end_column_values]
         ^ PIECE_ENCODINGS[end_columns, new_end_column_values]
         ^ (PIECE_ENCODINGS[-1, self.board[-1] - 1] * capturing)
       )
 
-      return (
+      valid = (
           ((start_columns + distance) < FULL_BOARD_LENGTH + 1)
         & (self.board > 0)
         & (old_end_column_values >= -1)
         & ((self.board[0] <= 0) | (start_columns == 0))
       )
+
+      return hashes * valid
 
     else:
       return (
@@ -147,11 +181,39 @@ class Backgammon:
       else:
         self.board[end_column] -= 1
 
+    self.hash = self.compute_hash()
+    self.turn_p0 = not self.turn_p0
+    self.length += 1
+
+    assert self.check_integrity()
+
+  def play_skip(self):
+    assert self.check_integrity()
+
     self.turn_p0 = not self.turn_p0
     self.hash = self.compute_hash()
     self.length += 1
 
     assert self.check_integrity()
+
+  def run_strategies(self, p0_strategy: Strategy, p1_strategy: Strategy):
+    while True:
+      winner = self.winner()
+
+      if winner is not None:
+        return winner
+
+      distance = np.random.randint(MAX_DISTANCE) + 1
+
+      if self.turn_p0:
+        move = p0_strategy.play(self, distance)
+      else:
+        move = p1_strategy.play(self, distance)
+
+      if move is not None:
+        self.play(move, distance)
+      else:
+        self.play_skip()
 
   def print(self):
     COLOR_BRIGHT_BLACK = '\033[90m'
@@ -212,7 +274,7 @@ if __name__ == '__main__':
   #   d: b.legal_moves(d).sum() for d in range(1, 7)
   # })
 
-  b = Backgammon()
+  b = Game()
   step = 0
 
   while not (b.p0_won() or b.p1_won()):

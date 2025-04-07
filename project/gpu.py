@@ -1,15 +1,21 @@
 from pathlib import Path
 from time import time_ns
+from typing import Protocol
 
 import numpy as np
 import wgpu
 
-from .game import BOARD_SIZE, Backgammon
+from .game import BOARD_SIZE, MAX_DISTANCE, Game
+
 
 MAX_PLAYOUT_COUNT = 65_536
-MAX_PLAYOUT_LENGTH = 1000
+MAX_PLAYOUT_LENGTH = 100
 RANDOM_NUM_COUNT_PER_MOVE = 2
-MAX_DISTANCE = 6
+
+
+class PlayoutEngine(Protocol):
+  def __call__(self, game: Game, *, generator: np.random.Generator, playout_count: int) -> float:
+    ...
 
 
 class GPUPlayoutEngine:
@@ -100,7 +106,7 @@ class GPUPlayoutEngine:
         ),
     )
 
-  def __call__(self, game: Backgammon, *, generator: np.random.Generator, playout_count: int):
+  def __call__(self, game: Game, *, generator: np.random.Generator, playout_count: int):
     max_playout_length = MAX_PLAYOUT_LENGTH - game.length
 
     assert playout_count <= 65_536
@@ -156,7 +162,7 @@ class GPUPlayoutEngine:
 
 
 class CPUPlayoutEngine:
-  def __call__(self, game: Backgammon, *, generator: np.random.Generator, playout_count: int):
+  def __call__(self, game: Game, *, generator: np.random.Generator, playout_count: int):
     max_playout_length = MAX_PLAYOUT_LENGTH - game.length
     random_arr = generator.random(
       dtype=np.float32,
@@ -202,7 +208,7 @@ class CPUPlayoutEngine:
     print(total_length / p0_win_count)
 
 
-start_game = Backgammon()
+start_game = Game()
 playout_count = 200
 
 
