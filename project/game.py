@@ -16,7 +16,8 @@ PLAYER_PIECE_COUNT = 15
 BOARD_SIZE = FULL_BOARD_LENGTH + 2
 MAX_DISTANCE = 6
 
-PIECE_ENCODINGS = np.random.randint(0, 1 << 6 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
+PIECE_ENCODINGS = np.random.randint(0, 1 << 16 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
+P0_TURN_ENCODING = np.random.randint(0, 1 << 16 - 1)
 
 
 class Strategy(Protocol):
@@ -42,6 +43,10 @@ class Game:
     self.hash = self.compute_hash()
     assert self.check_integrity()
 
+  @property
+  def normalized_board(self):
+    return self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1)
+
   def check_integrity(self):
     return (
           (np.maximum(self.board, 0).sum() == PLAYER_PIECE_COUNT)
@@ -50,23 +55,14 @@ class Game:
       and (self.board[-1] <= 0)
       and not (self.p0_won() and self.turn_p0)
       and not (self.p1_won() and not self.turn_p0)
-      # and (self.hash == self.compute_hash())
+      and (self.hash == self.compute_hash())
     )
 
-  # @property
-  # def normalized_board(self):
-  #   return self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1)
-
   def compute_hash(self):
-    print(PIECE_ENCODINGS[
-      np.arange(BOARD_SIZE),
-      self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1),
-    ])
-
     return xor(PIECE_ENCODINGS[
       np.arange(BOARD_SIZE),
-      self.board[::(1 if self.turn_p0 else -1)] * (1 if self.turn_p0 else -1),
-    ])
+      self.board,
+    ]) ^ (P0_TURN_ENCODING if self.turn_p0 else 0)
 
   def copy(self):
     return deepcopy(self)
@@ -77,7 +73,7 @@ class Game:
   def p1_won(self):
     return (self.board[(QUARTER_BOARD_LENGTH + 1):] >= 0).all()
 
-  def winner(self):
+  def p0_win_count(self):
     if self.p0_won():
       return 0
     elif self.p1_won():
@@ -89,78 +85,63 @@ class Game:
     assert 1 <= distance <= MAX_DISTANCE
 
     start_columns = np.arange(len(self.board))
+    old_start_column_values = self.board[start_columns]
 
     if self.turn_p0:
       end_columns = np.minimum(start_columns + distance, len(self.board) - 1)
-
-      old_start_column_values = self.board[start_columns]
-      new_start_column_values = old_start_column_values - 1
-
       old_end_column_values = self.board[end_columns]
+
+      new_start_column_values = old_start_column_values - 1
       new_end_column_values = np.maximum(old_end_column_values + 1, 1)
 
       capturing = old_end_column_values < 0
-      # print(end_columns[1], old_start_column_values[1], new_start_column_values[1], old_end_column_values[1], new_end_column_values[1], capturing[1])
+      capture_hash = PIECE_ENCODINGS[-1, self.board[-1]] ^ PIECE_ENCODINGS[-1, self.board[-1] - 1]
 
-      print(
-                  PIECE_ENCODINGS[start_columns, old_start_column_values][1],
-        PIECE_ENCODINGS[start_columns, new_start_column_values][1],
-        PIECE_ENCODINGS[end_columns, old_end_column_values][1],
-        PIECE_ENCODINGS[end_columns, new_end_column_values][1]
-      )
-      hashes = (
-          PIECE_ENCODINGS[start_columns, old_start_column_values]
-        ^ PIECE_ENCODINGS[start_columns, new_start_column_values]
-        ^ PIECE_ENCODINGS[end_columns, old_end_column_values]
-        ^ PIECE_ENCODINGS[end_columns, new_end_column_values]
-        ^ (PIECE_ENCODINGS[-1, self.board[-1] - 1] * capturing)
-      )
-
-      valid = (
+      legal = (
           ((start_columns + distance) < FULL_BOARD_LENGTH + 1)
         & (self.board > 0)
         & (old_end_column_values >= -1)
         & ((self.board[0] <= 0) | (start_columns == 0))
       )
 
-      return hashes * valid
-
     else:
-      return (
+      end_columns = np.maximum(start_columns - distance, 0)
+      old_end_column_values = self.board[end_columns]
+
+      new_start_column_values = old_start_column_values + 1
+      new_end_column_values = np.minimum(old_end_column_values - 1, -1)
+
+      capturing = old_end_column_values > 0
+      capture_hash = PIECE_ENCODINGS[0, self.board[0]] ^ PIECE_ENCODINGS[0, self.board[0] + 1]
+
+      legal = (
           ((start_columns - distance) >= 1)
         & (self.board < 0)
-        & (self.board[np.maximum(start_columns - distance, 0)] <= 1)
+        & (old_end_column_values <= 1)
         & ((self.board[-1] >= 0) | (start_columns == FULL_BOARD_LENGTH + 1))
       )
 
-  def legal_moves_packed(self, distance: int):
-    print(self.legal_moves(distance).nonzero()[0])
-
-    # packed_empty = sum(1 << column for column, value in enumerate(self.board)) if value == 0)
-
-    masks = 1 << np.arange(len(self.board))
-    packed_empty = ((self.board == 0) * masks).sum().item()
-    packed_p0 = ((self.board > 0) * masks).sum().item()
-    packed_many = ((np.abs(self.board) > 1) * masks).sum().item()
-
-    print(f'{packed_empty:028b}')
-    print(f'{packed_p0:028b}')
-    print(f'{packed_many:028b}')
-
-    x = packed_p0 & (
-        (packed_empty >> distance)
-      | (packed_p0 >> distance)
-      | ~(packed_many >> distance)
+    hashes = (
+        self.hash
+      ^ PIECE_ENCODINGS[start_columns, old_start_column_values]
+      ^ PIECE_ENCODINGS[start_columns, new_start_column_values]
+      ^ PIECE_ENCODINGS[end_columns, old_end_column_values]
+      ^ PIECE_ENCODINGS[end_columns, new_end_column_values]
+      ^ (capture_hash * capturing)
+      ^ P0_TURN_ENCODING
     )
 
-    v = np.array([bool((x >> i) & 1) for i in range(len(self.board))])
-    print(v.nonzero()[0])
+    return legal * hashes
 
-    print(f'{x:028b}')
 
   def play(self, start_column: int, distance: int):
     assert self.check_integrity()
-    assert self.legal_moves(distance)[start_column]
+    # assert self.legal_moves(distance)[start_column] != 0
+    if __debug__ and (self.legal_moves(distance)[start_column] == 0):
+      print(start_column, distance)
+      print(self.legal_moves(distance))
+      self.print()
+      raise ValueError('Invalid move')
 
     if self.turn_p0:
       end_column = start_column + distance
@@ -181,8 +162,8 @@ class Game:
       else:
         self.board[end_column] -= 1
 
-    self.hash = self.compute_hash()
     self.turn_p0 = not self.turn_p0
+    self.hash = self.compute_hash()
     self.length += 1
 
     assert self.check_integrity()
@@ -191,17 +172,17 @@ class Game:
     assert self.check_integrity()
 
     self.turn_p0 = not self.turn_p0
-    self.hash = self.compute_hash()
+    self.hash ^= P0_TURN_ENCODING
     self.length += 1
 
     assert self.check_integrity()
 
   def run_strategies(self, p0_strategy: Strategy, p1_strategy: Strategy):
     while True:
-      winner = self.winner()
+      p0_win_count = self.p0_win_count()
 
-      if winner is not None:
-        return winner
+      if p0_win_count is not None:
+        return p0_win_count
 
       distance = np.random.randint(MAX_DISTANCE) + 1
 
@@ -299,4 +280,4 @@ if __name__ == '__main__':
 
   b.print()
 
-  print(step, b.winner())
+  print(step, b.p0_win_count())

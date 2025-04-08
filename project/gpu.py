@@ -194,7 +194,7 @@ class CPUPlayoutEngine:
         current_game.play(move, distance)
         current_game.turn_p0 = True
 
-        winner = current_game.winner()
+        winner = current_game.p0_win_count()
 
         if winner is not None:
           p0_win_count += 1
