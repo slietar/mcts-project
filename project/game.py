@@ -16,8 +16,8 @@ PLAYER_PIECE_COUNT = 15
 BOARD_SIZE = FULL_BOARD_LENGTH + 2
 MAX_DISTANCE = 6
 
-PIECE_ENCODINGS = np.random.randint(0, 1 << 16 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
-P0_TURN_ENCODING = np.random.randint(0, 1 << 16 - 1)
+PIECE_ENCODINGS = np.random.randint(0, 1 << 64 - 1, (FULL_BOARD_LENGTH + 2, PLAYER_PIECE_COUNT * 2 + 1))
+P0_TURN_ENCODING = np.random.randint(0, 1 << 64 - 1)
 
 
 class Strategy(Protocol):
@@ -242,6 +242,9 @@ class Game:
         output += '\n'
 
     print(output)
+
+  def translate_win_fraction(self, p0_win_count: int | np.ndarray):
+    return p0_win_count if self.turn_p0 else 1 - p0_win_count
 
   def transpose(self):
     self.board = -self.board[::-1].copy()
