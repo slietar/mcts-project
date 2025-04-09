@@ -13,6 +13,7 @@ struct Settings {
 }
 
 struct Stats {
+  completedGameCount: atomic<u32>,
   sumP0Win: atomic<u32>,
   sumPlayoutLength: atomic<u32>,
   out: array<i32>,
@@ -60,6 +61,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
 
+  for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
+
   var packedEmpty = 0u;
   var packedP0 = 0u;
   var packedMany = 0u;
@@ -81,7 +84,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
 
-  for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
+  // for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
     let stepRandomIndex = playoutRandomIndex + currentLength * randomNumCountPerMove;
     let distance = u32(random[stepRandomIndex] * f32(maxDistance)) + 1u;
     // let distance = 4u;
@@ -113,21 +116,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         startColumn = indexOfNthOneBit(packedLegal, moveIndex);
         endColumn = startColumn + distance;
-
-        board[startColumn] -= 1;
-
-        if board[endColumn] == -1 {
-          board[endColumn] = 1;
-          board[boardSize - 1u] -= 1;
-        } else {
-          board[endColumn] += 1;
-        }
       } else {
         startColumn = boardSize;
       }
     }
 
     if startColumn != boardSize {
+      board[startColumn] -= 1;
+
+      if board[endColumn] == -1 {
+        board[endColumn] = 1;
+        board[boardSize - 1u] -= 1;
+      } else {
+        board[endColumn] += 1;
+      }
+
       let startMask = 1u << startColumn;
       let endMask = 1u << endColumn;
 
@@ -166,6 +169,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         atomicAdd(&stats.sumP0Win, 1u);
       }
 
+      atomicAdd(&stats.completedGameCount, 1u);
       atomicAdd(&stats.sumPlayoutLength, currentLength + 1u);
       break;
     }
@@ -175,22 +179,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Transpose board
 
-    for (var column = 0u; column < boardSize; column += 1u) {
+    for (var column = 0u; column < boardSize / 2; column += 1u) {
       let value = board[column];
 
       board[column] = -board[boardSize - 1u - column];
-      board[boardSize - 1u - column] = value;
+      board[boardSize - 1u - column] = -value;
     }
 
     packedP0 = ~packedEmpty & ~packedP0;
     packedP0 = reverseBits(packedP0) >> (32u - boardSize);
     packedMany = reverseBits(packedMany) >> (32u - boardSize);
     packedEmpty = reverseBits(packedEmpty) >> (32u - boardSize);
-
-    // 0000 0123 (source)
-    // 3210 0000 reverseBits
-    // 0032 1000 >> 2
   }
+
 
   // for (var index = 0u; index < boardSize; index += 1u) {
   //   stats.out[index] = board[index];

@@ -9,7 +9,7 @@ from .game import BOARD_SIZE, MAX_DISTANCE, Game
 
 
 MAX_PLAYOUT_COUNT = 65_536
-MAX_PLAYOUT_LENGTH = 1000
+MAX_PLAYOUT_LENGTH = 600
 RANDOM_NUM_COUNT_PER_MOVE = 2
 
 
@@ -39,7 +39,7 @@ class GPUPlayoutEngine:
     )
 
     self._buffer3 = self._device.create_buffer(
-        size=(8 + BOARD_SIZE * 4),
+        size=(12 + BOARD_SIZE * 4),
         usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC,
     )
 
@@ -107,15 +107,15 @@ class GPUPlayoutEngine:
     )
 
   def __call__(self, game: Game, *, generator: np.random.Generator, playout_count: int):
-    max_playout_length = MAX_PLAYOUT_LENGTH - game.length
+    target_game = game.transpose() if not game.turn_p0 else game
 
-    assert playout_count <= 65_536
+    max_playout_length = MAX_PLAYOUT_LENGTH - target_game.length
 
 
     # Write buffers
 
     boards_arr = (
-      game.board
+      target_game.board
         .astype(dtype=np.int32)
         .copy()
         [None, :]
@@ -150,17 +150,32 @@ class GPUPlayoutEngine:
 
     # Read results
 
-    out = self._device.queue.read_buffer(self._buffer3, 0, 8 + BOARD_SIZE * 4).cast('i')
+    out = self._device.queue.read_buffer(self._buffer3, 0, 12 + BOARD_SIZE * 4).cast('i')
     stats = np.frombuffer(out, dtype=np.int32) #.reshape((playout_count, -1))
+
+    # Completed playout fraction
+    # print(stats[0] / playout_count)
 
     # print(stats[0])
     # print(f'{stats=}')
     # print(stats[1] / stats[0])
 
-    # b = Backgammon(stats[2:], turn_p0=False)
-    # b.print()
+    # print(stats[2:])
+    # g = Game(stats[3:], turn_p0=(stats[2] % 2 == 0))
 
-    return stats[0] / playout_count
+    # if not game.turn_p0:
+    #   g = g.transpose()
+
+    # g.print()
+
+    # print('Average playout length:', stats[2] / stats[0])
+
+    p0_win_fraction = stats[1] / stats[0]
+
+    if not game.turn_p0:
+      p0_win_fraction = 1 - p0_win_fraction
+
+    return p0_win_fraction
 
 
 class CPUPlayoutEngine:
@@ -171,6 +186,7 @@ class CPUPlayoutEngine:
       size=(playout_count, RANDOM_NUM_COUNT_PER_MOVE * max_playout_length)
     ).ravel()
 
+    completed_game_count = 0
     p0_win_count = 0
     total_length = 0
 
@@ -195,33 +211,46 @@ class CPUPlayoutEngine:
           continue
 
         move_index = int(random_arr[step_random_index + 1] * len(legal_moves))
-        move = legal_moves[move_index]
+        move = legal_moves[len(legal_moves) - 1 - move_index] if not current_game.turn_p0 else legal_moves[move_index]
+        # print('->', distance, move_index, legal_moves)
+        # move = legal_moves[move_index]
         current_game.play(move, distance)
+        # print(distance, legal_moves)
 
         current_game_p0_win_count = current_game.p0_win_count()
 
         if current_game_p0_win_count is not None:
+          completed_game_count += 1
           p0_win_count += current_game_p0_win_count
           total_length += current_game.length
           break
-      else:
-        print('Failed to find a winner')
+      # else:
+      #   print('Failed to find a winner')
 
       # current_game.print()
       # break
+
+    # current_game.print()
+    # x = current_game.copy()
+    # x.transpose()
+    # x.print()
 
     # print(p0_win_count / playout_count)
     # print(p0_win_count)
     # print(total_length / p0_win_count)
 
-    print('Average playout length:', total_length / playout_count)
+    # print('Average playout length:', total_length / completed_game_count)
 
-    return p0_win_count / playout_count
+    return p0_win_count / completed_game_count
 
 
 if __name__ == '__main__':
   start_game = Game()
-  playout_count = 213
+  # start_game.play_skip()
+  playout_count = 1000
+
+  # print(start_game.board)
+  # start_game.print()
 
 
   # GPU

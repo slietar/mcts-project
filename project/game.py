@@ -75,9 +75,9 @@ class Game:
 
   def p0_win_count(self):
     if self.p0_won():
-      return 0
-    elif self.p1_won():
       return 1
+    elif self.p1_won():
+      return 0
     else:
       return None
 
@@ -247,10 +247,11 @@ class Game:
     return p0_win_count if self.turn_p0 else 1 - p0_win_count
 
   def transpose(self):
-    self.board = -self.board[::-1].copy()
-    self.turn_p0 = not self.turn_p0
-
-    assert self.check_integrity()
+    return self.__class__(
+      board=-self.board[::-1],
+      length=self.length,
+      turn_p0=(not self.turn_p0),
+    )
 
 
 if __name__ == '__main__':
