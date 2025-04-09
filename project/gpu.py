@@ -8,7 +8,7 @@ import wgpu
 from .game import BOARD_SIZE, MAX_DISTANCE, Game
 
 
-MAX_PLAYOUT_COUNT = 65_536
+MAX_PLAYOUT_COUNT = 65_535
 MAX_PLAYOUT_LENGTH = 600
 RANDOM_NUM_COUNT_PER_MOVE = 2
 
@@ -18,30 +18,10 @@ class PlayoutEngine(Protocol):
     ...
 
 
-class GPUPlayoutEngine:
+class GPUBackend:
   def __init__(self):
-    self._device = wgpu.utils.get_default_device()
-    shader = self._device.create_shader_module(code=(Path(__file__).parent / 'shader.wgsl').read_text())
-
-    self._buffer0 = self._device.create_buffer(
-      size=(MAX_PLAYOUT_COUNT * MAX_PLAYOUT_LENGTH * RANDOM_NUM_COUNT_PER_MOVE * 4),
-      usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
-    )
-
-    self._buffer1 = self._device.create_buffer(
-      size=4,
-      usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
-    )
-
-    self._buffer2 = self._device.create_buffer(
-        size=(BOARD_SIZE * MAX_PLAYOUT_COUNT * 4),
-        usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
-    )
-
-    self._buffer3 = self._device.create_buffer(
-        size=(12 + BOARD_SIZE * 4),
-        usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC,
-    )
+    self.device = wgpu.utils.get_default_device()
+    shader = self.device.create_shader_module(code=(Path(__file__).parent / 'shader.wgsl').read_text())
 
     binding_layouts = [
         {
@@ -74,6 +54,49 @@ class GPUPlayoutEngine:
         },
     ]
 
+    self.bind_group_layout = self.device.create_bind_group_layout(entries=binding_layouts)
+    self.pipeline_layout = self.device.create_pipeline_layout(bind_group_layouts=[self.bind_group_layout])
+
+    self.compute_pipeline = self.device.create_compute_pipeline(
+        layout=self.pipeline_layout,
+        compute=dict(
+          entry_point='main',
+          module=shader,
+        ),
+    )
+
+  @classmethod
+  def get(cls):
+    if not hasattr(cls, '_instance'):
+      cls._instance = cls()
+
+    return cls._instance
+
+
+class GPUPlayoutEngine:
+  def __init__(self):
+    self._backend = GPUBackend.get()
+
+    self._buffer0 = self._backend.device.create_buffer(
+      size=(MAX_PLAYOUT_COUNT * MAX_PLAYOUT_LENGTH * RANDOM_NUM_COUNT_PER_MOVE * 4),
+      usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
+    )
+
+    self._buffer1 = self._backend.device.create_buffer(
+      size=4,
+      usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
+    )
+
+    self._buffer2 = self._backend.device.create_buffer(
+        size=(BOARD_SIZE * MAX_PLAYOUT_COUNT * 4),
+        usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
+    )
+
+    self._buffer3 = self._backend.device.create_buffer(
+        size=(12 + BOARD_SIZE * 4),
+        usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
+    )
+
     bindings = [
         {
             "binding": 0,
@@ -93,18 +116,7 @@ class GPUPlayoutEngine:
         },
     ]
 
-    bind_group_layout = self._device.create_bind_group_layout(entries=binding_layouts)
-    pipeline_layout = self._device.create_pipeline_layout(bind_group_layouts=[bind_group_layout])
-    self._bind_group = self._device.create_bind_group(layout=bind_group_layout, entries=bindings)
-
-    # Create and run the pipeline
-    self._compute_pipeline = self._device.create_compute_pipeline(
-        layout=pipeline_layout,
-        compute=dict(
-          entry_point='main',
-          module=shader,
-        ),
-    )
+    self._bind_group = self._backend.device.create_bind_group(layout=self._backend.bind_group_layout, entries=bindings)
 
   def __call__(self, game: Game, *, generator: np.random.Generator, playout_count: int):
     target_game = game.transpose() if not game.turn_p0 else game
@@ -130,28 +142,29 @@ class GPUPlayoutEngine:
       size=(playout_count, RANDOM_NUM_COUNT_PER_MOVE * max_playout_length)
     ).ravel()
 
-    self._device.queue.write_buffer(self._buffer0, 0, random_arr.tobytes())
-    self._device.queue.write_buffer(self._buffer1, 0, settings_arr.tobytes())
-    self._device.queue.write_buffer(self._buffer2, 0, boards_arr.tobytes())
+    self._backend.device.queue.write_buffer(self._buffer0, 0, random_arr.tobytes())
+    self._backend.device.queue.write_buffer(self._buffer1, 0, settings_arr.tobytes())
+    self._backend.device.queue.write_buffer(self._buffer2, 0, boards_arr.tobytes())
+    self._backend.device.queue.write_buffer(self._buffer3, 0, b'\0' * self._buffer3.size)
 
 
     # Submit the compute pass
 
-    command_encoder = self._device.create_command_encoder()
+    command_encoder = self._backend.device.create_command_encoder()
 
     compute_pass = command_encoder.begin_compute_pass()
-    compute_pass.set_pipeline(self._compute_pipeline)
+    compute_pass.set_pipeline(self._backend.compute_pipeline)
     compute_pass.set_bind_group(0, self._bind_group)
     compute_pass.dispatch_workgroups(playout_count, 1, 1)
     compute_pass.end()
 
-    self._device.queue.submit([command_encoder.finish()])
+    self._backend.device.queue.submit([command_encoder.finish()])
 
 
     # Read results
 
-    out = self._device.queue.read_buffer(self._buffer3, 0, 12 + BOARD_SIZE * 4).cast('i')
-    stats = np.frombuffer(out, dtype=np.int32) #.reshape((playout_count, -1))
+    out = self._backend.device.queue.read_buffer(self._buffer3, 0, 12 + BOARD_SIZE * 4).cast('i')
+    stats = np.frombuffer(out, dtype=np.int32)
 
     # Completed playout fraction
     # print(stats[0] / playout_count)
@@ -174,6 +187,9 @@ class GPUPlayoutEngine:
 
     if not game.turn_p0:
       p0_win_fraction = 1 - p0_win_fraction
+
+    # t1 = time_ns()
+    # print((t1 - t0) / 1e6 / playout_count, 'ms/playout')
 
     return p0_win_fraction
 

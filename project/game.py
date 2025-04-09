@@ -21,6 +21,9 @@ P0_TURN_ENCODING = np.random.randint(0, 1 << 64 - 1)
 
 
 class Strategy(Protocol):
+  def copy(self) -> 'Strategy':
+    ...
+
   def play(self, game: 'Game', distance: int) -> Optional[int]:
     ...
 
