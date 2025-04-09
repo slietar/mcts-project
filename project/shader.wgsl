@@ -7,12 +7,9 @@ const playerPieceCount: u32 = 15;
 const maxDistance: u32 = 6;
 const randomNumCountPerMove: u32 = 2;
 
-// @group(0) @binding(0)
-// var<storage, read> pieceEncodings: array<u32, (boardSize * (playerPieceCount * 2) + 1)>;
 
 struct Settings {
   maxPlayoutLength: u32,
-  // turnP0Encoding: u32,
 }
 
 struct Stats {
@@ -53,7 +50,7 @@ fn indexOfNthOneBit(val: u32, n: u32) -> u32 {
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let playoutId = gid.x;
 
-  var currentRandomIndex = settings.maxPlayoutLength * playoutId * randomNumCountPerMove;
+  let playoutRandomIndex = settings.maxPlayoutLength * playoutId * randomNumCountPerMove;
   var turnP0 = true;
 
   var board: array<i32, boardSize>;
@@ -84,82 +81,115 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
 
-  for (var playoutStep = 0u; playoutStep < settings.maxPlayoutLength; playoutStep += 1u) {
-    let distance = u32(random[currentRandomIndex] * f32(maxDistance)) + 1u;
+  for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
+    let stepRandomIndex = playoutRandomIndex + currentLength * randomNumCountPerMove;
+    let distance = u32(random[stepRandomIndex] * f32(maxDistance)) + 1u;
     // let distance = 4u;
-    currentRandomIndex += 1u;
 
-    if turnP0 {
-      if board[0] > 0 {
-        // ...
-      } else {
-        let packedLegal =
-            packedP0
-          & (((1u << (boardSize - 1u)) - 1u) >> distance)
-          & (
-              (packedEmpty >> distance)
-            | (packedP0 >> distance)
-            | ~(packedMany >> distance)
-          );
+    var startColumn: u32; // Sentinel value for no move possible = boardSize
+    var endColumn: u32;
 
-        let moveCount = countOneBits(packedLegal);
+    if board[0] > 0 {
+      startColumn = 0u;
+      endColumn = startColumn + distance;
 
-        if moveCount > 0u {
-          let moveIndex = u32(random[currentRandomIndex] * f32(moveCount));
-          currentRandomIndex += 1u;
+      if board[endColumn] < -1 {
+        startColumn = boardSize;
+      }
+    } else {
+      let packedLegal =
+          packedP0
+        & (((1u << (boardSize - 1u)) - 1u) >> distance)
+        & (
+            (packedEmpty >> distance)
+          | (packedP0 >> distance)
+          | ~(packedMany >> distance)
+        );
 
-          let startColumn = indexOfNthOneBit(packedLegal, moveIndex);
-          let endColumn = startColumn + distance;
+      let moveCount = countOneBits(packedLegal);
 
-          board[startColumn] -= 1;
+      if moveCount > 0u {
+        let moveIndex = u32(random[stepRandomIndex + 1] * f32(moveCount));
 
-          if board[endColumn] == -1 {
-            board[endColumn] = 1;
-            board[boardSize - 1u] -= 1;
-          } else {
-            board[endColumn] += 1;
-          }
+        startColumn = indexOfNthOneBit(packedLegal, moveIndex);
+        endColumn = startColumn + distance;
 
-          let startMask = 1u << startColumn;
-          let endMask = 1u << endColumn;
+        board[startColumn] -= 1;
 
-          if board[startColumn] > 1 {
-            packedEmpty &= ~startMask;
-            packedP0 |= startMask;
-            packedMany |= startMask;
-          } else if board[startColumn] > 0 {
-            packedEmpty &= ~startMask;
-            packedP0 |= startMask;
-            packedMany &= ~startMask;
-          } else {
-            packedEmpty |= startMask;
-            packedP0 &= ~startMask;
-            packedMany &= ~startMask;
-          }
-
-          packedEmpty &= ~endMask;
-          packedP0 |= endMask;
-
-          if board[endColumn] > 1 {
-            packedMany |= endMask;
-          } else {
-            packedMany &= ~endMask;
-          }
+        if board[endColumn] == -1 {
+          board[endColumn] = 1;
+          board[boardSize - 1u] -= 1;
+        } else {
+          board[endColumn] += 1;
         }
+      } else {
+        startColumn = boardSize;
       }
     }
 
-    // let wonP0 = (packedP0 & (((1 << quarterBoardLength) - 1) << (quarterBoardLength * 3 + 1))) == packedP0;
+    if startColumn != boardSize {
+      let startMask = 1u << startColumn;
+      let endMask = 1u << endColumn;
+
+      if board[startColumn] > 1 {
+        packedEmpty &= ~startMask;
+        packedP0 |= startMask;
+        packedMany |= startMask;
+      } else if board[startColumn] > 0 {
+        packedEmpty &= ~startMask;
+        packedP0 |= startMask;
+        packedMany &= ~startMask;
+      } else {
+        packedEmpty |= startMask;
+        packedP0 &= ~startMask;
+        packedMany &= ~startMask;
+      }
+
+      packedEmpty &= ~endMask;
+      packedP0 |= endMask;
+
+      if board[endColumn] > 1 {
+        packedMany |= endMask;
+      } else {
+        packedMany &= ~endMask;
+      }
+    }
+
+
+    // Check if P0 has won
 
     let fourthQuarterMask = (((1u << quarterBoardLength) - 1u) << (quarterBoardLength * 3u + 1u));
-    // let wonP0 = countOneBits(fourthQuarterMask | ~packedP0) == boardSize;
     let wonP0 = (packedP0 & fourthQuarterMask) == packedP0;
 
     if wonP0 {
-      atomicAdd(&stats.sumP0Win, 1u);
-      atomicAdd(&stats.sumPlayoutLength, playoutStep + 1u);
+      if turnP0 {
+        atomicAdd(&stats.sumP0Win, 1u);
+      }
+
+      atomicAdd(&stats.sumPlayoutLength, currentLength + 1u);
       break;
     }
+
+    turnP0 = !turnP0;
+
+
+    // Transpose board
+
+    for (var column = 0u; column < boardSize; column += 1u) {
+      let value = board[column];
+
+      board[column] = -board[boardSize - 1u - column];
+      board[boardSize - 1u - column] = value;
+    }
+
+    packedP0 = ~packedEmpty & ~packedP0;
+    packedP0 = reverseBits(packedP0) >> (32u - boardSize);
+    packedMany = reverseBits(packedMany) >> (32u - boardSize);
+    packedEmpty = reverseBits(packedEmpty) >> (32u - boardSize);
+
+    // 0000 0123 (source)
+    // 3210 0000 reverseBits
+    // 0032 1000 >> 2
   }
 
   // for (var index = 0u; index < boardSize; index += 1u) {

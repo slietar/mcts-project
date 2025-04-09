@@ -9,7 +9,7 @@ from .game import BOARD_SIZE, MAX_DISTANCE, Game
 
 
 MAX_PLAYOUT_COUNT = 65_536
-MAX_PLAYOUT_LENGTH = 100
+MAX_PLAYOUT_LENGTH = 1000
 RANDOM_NUM_COUNT_PER_MOVE = 2
 
 
@@ -155,10 +155,12 @@ class GPUPlayoutEngine:
 
     # print(stats[0])
     # print(f'{stats=}')
-    print(stats[1] / stats[0])
+    # print(stats[1] / stats[0])
 
     # b = Backgammon(stats[2:], turn_p0=False)
     # b.print()
+
+    return stats[0] / playout_count
 
 
 class CPUPlayoutEngine:
@@ -174,97 +176,116 @@ class CPUPlayoutEngine:
 
     for playout_id in range(playout_count):
       current_game = game.copy()
-      current_random_index = playout_id * RANDOM_NUM_COUNT_PER_MOVE * max_playout_length
 
-      for _ in range(max_playout_length):
-        distance = int(random_arr[current_random_index] * MAX_DISTANCE) + 1
-        current_random_index += 1
+      # 2x slower
+      # current_game.run_strategies(RANDOM_STRATEGY, RANDOM_STRATEGY)
+      # continue
+
+      playout_random_index = playout_id * RANDOM_NUM_COUNT_PER_MOVE * max_playout_length
+
+      for current_length in range(max_playout_length):
+        step_random_index = playout_random_index + current_length * RANDOM_NUM_COUNT_PER_MOVE
+
+        distance = int(random_arr[step_random_index] * MAX_DISTANCE) + 1
 
         legal_moves = current_game.legal_moves(distance).nonzero()[0]
 
         if len(legal_moves) == 0:
-          current_game.length += 1
+          current_game.play_skip()
           continue
 
-        move_index = int(random_arr[current_random_index] * len(legal_moves))
-        current_random_index += 1
-
+        move_index = int(random_arr[step_random_index + 1] * len(legal_moves))
         move = legal_moves[move_index]
-
         current_game.play(move, distance)
-        current_game.turn_p0 = True
 
-        winner = current_game.p0_win_count()
+        current_game_p0_win_count = current_game.p0_win_count()
 
-        if winner is not None:
-          p0_win_count += 1
+        if current_game_p0_win_count is not None:
+          p0_win_count += current_game_p0_win_count
           total_length += current_game.length
           break
+      else:
+        print('Failed to find a winner')
 
       # current_game.print()
+      # break
 
     # print(p0_win_count / playout_count)
     # print(p0_win_count)
-    print(total_length / p0_win_count)
+    # print(total_length / p0_win_count)
+
+    print('Average playout length:', total_length / playout_count)
+
+    return p0_win_count / playout_count
 
 
-start_game = Game()
-playout_count = 200
+if __name__ == '__main__':
+  start_game = Game()
+  playout_count = 213
 
 
-# GPU
-print('GPU')
+  # GPU
+  if True:
+    print('GPU')
 
-generator = np.random.default_rng(0)
-playout_engine_gpu = GPUPlayoutEngine()
+    generator = np.random.default_rng(0)
+    playout_engine_gpu = GPUPlayoutEngine()
 
-t0 = time_ns()
-playout_engine_gpu(start_game, generator=generator, playout_count=playout_count)
-t1 = time_ns()
+    t0 = time_ns()
+    x = playout_engine_gpu(start_game, generator=generator, playout_count=playout_count)
+    t1 = time_ns()
 
-print(f'Time: {((t1 - t0) / 1e6 / playout_count):.4f} ms/playout')
-
-
-# CPU
-print('\nCPU')
-
-generator = np.random.default_rng(0)
-playout_engine_cpu = CPUPlayoutEngine()
-
-t2 = time_ns()
-x = playout_engine_cpu(start_game, generator=generator, playout_count=playout_count)
-t3 = time_ns()
-print(f'Time: {((t3 - t2) / 1e6 / playout_count):.4f} ms/playout')
-
-# print(x)
+    print(f'Time: {((t1 - t0) / 1e6 / playout_count):.4f} ms/playout')
+    print(f'Win fraction: {x}')
 
 
-# generator = np.random.default_rng(0)
-# playout_engine_gpu = GPUPlayoutEngine()
+  # CPU
+  if True:
+    print('\nCPU')
+
+    generator = np.random.default_rng(0)
+    playout_engine_cpu = CPUPlayoutEngine()
+
+    t2 = time_ns()
+    x = playout_engine_cpu(start_game, generator=generator, playout_count=playout_count)
+    t3 = time_ns()
+
+    print(f'Time: {((t3 - t2) / 1e6 / playout_count):.4f} ms/playout')
+    print(f'Win fraction: {x}')
 
 
-# async def main():
-#   t0 = time_ns()
-#   repeat = 5
 
-#   async with asyncio.TaskGroup() as group:
-#     for _ in range(repeat):
-#       group.create_task(
-#         asyncio.to_thread(lambda: playout_engine_gpu(start_game, generator=generator, playout_count=playout_count))
-#       )
 
-#   t1 = time_ns()
-#   print(f'Time: {((t1 - t0) / 1e6 / playout_count / repeat):.4f} ms/playout')
 
-# import asyncio
-# asyncio.run(main())
+  # print(x)
 
-# # def run(_):
-# #   playout_engine_gpu(start_game, generator=generator, playout_count=playout_count)
 
-# # if __name__ == '__main__':
-# #   import concurrent.futures
+  # generator = np.random.default_rng(0)
+  # playout_engine_gpu = GPUPlayoutEngine()
 
-# #   with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-# #     for future in executor.map(run, range(5)):
-# #       pass
+
+  # async def main():
+  #   t0 = time_ns()
+  #   repeat = 5
+
+  #   async with asyncio.TaskGroup() as group:
+  #     for _ in range(repeat):
+  #       group.create_task(
+  #         asyncio.to_thread(lambda: playout_engine_gpu(start_game, generator=generator, playout_count=playout_count))
+  #       )
+
+  #   t1 = time_ns()
+  #   print(f'Time: {((t1 - t0) / 1e6 / playout_count / repeat):.4f} ms/playout')
+
+  # import asyncio
+  # asyncio.run(main())
+
+  # # def run(_):
+  # #   playout_engine_gpu(start_game, generator=generator, playout_count=playout_count)
+
+  # # if __name__ == '__main__':
+  # #   import concurrent.futures
+
+  # #   with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+  # #     for future in executor.map(run, range(5)):
+  # #       pass
