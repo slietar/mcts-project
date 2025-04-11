@@ -62,29 +62,27 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 
   for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
+    var packedEmpty = 0u;
+    var packedP0 = 0u;
+    var packedMany = 0u;
 
-  var packedEmpty = 0u;
-  var packedP0 = 0u;
-  var packedMany = 0u;
+    for (var column = 0u; column < boardSize; column += 1u) {
+      let value = board[column];
 
-  for (var column = 0u; column < boardSize; column += 1u) {
-    let value = board[column];
+      if value == 0 {
+        packedEmpty |= 1u << column;
+      }
 
-    if value == 0 {
-      packedEmpty |= 1u << column;
+      if value >= 1 {
+        packedP0 |= 1u << column;
+      }
+
+      if abs(value) > 1 {
+        packedMany |= 1u << column;
+      }
     }
 
-    if value >= 1 {
-      packedP0 |= 1u << column;
-    }
 
-    if abs(value) > 1 {
-      packedMany |= 1u << column;
-    }
-  }
-
-
-  // for (var currentLength = 0u; currentLength < settings.maxPlayoutLength; currentLength += 1u) {
     let stepRandomIndex = playoutRandomIndex + currentLength * randomNumCountPerMove;
     let distance = u32(random[stepRandomIndex] * f32(maxDistance)) + 1u;
     // let distance = 4u;
