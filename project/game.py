@@ -62,10 +62,10 @@ class Game:
     )
 
   def compute_hash(self):
-    return xor(PIECE_ENCODINGS[
+    return int(xor(PIECE_ENCODINGS[
       np.arange(BOARD_SIZE),
       self.board,
-    ]) ^ (P0_TURN_ENCODING if self.turn_p0 else 0)
+    ]) ^ (P0_TURN_ENCODING if self.turn_p0 else 0))
 
   def copy(self):
     return deepcopy(self)
@@ -83,6 +83,27 @@ class Game:
       return 0
     else:
       return None
+
+  def playout_amaf(self):
+    from .mcts import RANDOM_STRATEGY
+
+    counts = np.zeros((BOARD_SIZE, MAX_DISTANCE), dtype=np.int32)
+
+    while True:
+      p0_win_count = self.p0_win_count()
+
+      if p0_win_count is not None:
+        return p0_win_count, counts
+
+      distance = np.random.randint(MAX_DISTANCE) + 1
+      move = RANDOM_STRATEGY.play(self, distance)
+
+      if move is not None:
+        self.play(move, distance)
+        counts[move, distance - 1] += 1
+      else:
+        self.play_skip()
+
 
   def legal_moves(self, distance: int):
     assert 1 <= distance <= MAX_DISTANCE
@@ -269,13 +290,17 @@ if __name__ == '__main__':
     distances = np.random.permutation(6) + 1
 
     for distance in distances:
-      legal_moves = b.legal_moves(distance).nonzero()[0]
+      legal_hashes = b.legal_moves(distance)
+      legal_moves = legal_hashes.nonzero()[0]
 
       if len(legal_moves) == 0:
         continue
 
       move = legal_moves[[np.random.randint(len(legal_moves))]]
+
       b.play(move, distance)
+      assert b.hash == legal_hashes[move]
+
       # print('\n' * 5)
       # print(b.compute_hash())
       # b.print()
