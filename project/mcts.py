@@ -7,7 +7,7 @@ from time import time
 from typing import Optional
 
 import numpy as np
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from .game import BOARD_SIZE, MAX_DISTANCE, Game, Strategy
 from .gpu import GPUBackend, GPUPlayoutEngine, PlayoutEngine
@@ -78,7 +78,7 @@ class FlatStrategy:
     return best_move_column
 
 
-# engine = GPUPlayoutEngine()
+engine = GPUPlayoutEngine()
 
 @dataclass(slots=True)
 class Node:
@@ -94,9 +94,9 @@ class Node:
 @dataclass(slots=True)
 class UCTStrategy:
   amaf_proportion: float = 0.5
-  expansion_count: int = 10
+  expansion_count: int = 50
   exploration_constant: float = math.sqrt(2)
-  playout_count: int = 10
+  playout_count: int = 1000
 
   nodes: dict[int, Node] = field(default_factory=dict, init=False, repr=False)
 
@@ -124,9 +124,6 @@ class UCTStrategy:
           #   print(current_node.game.p0_win_count())
           #   print(node.game.p0_win_count())
           #   print(current_move_hashes)
-
-          # if node.p0_win_count is not None:
-          #   return -1
 
           if current_node.children_simulation_count == 0:
             return -1
@@ -163,7 +160,9 @@ class UCTStrategy:
           child_uct_score = get_uct_score(child_node)
           child_amaf_score = child_node.amaf[move_column, current_distance - 1] / child_node.simulation_count * (1 if child_node.game.turn_p0 else -1)
 
-          child_score = child_amaf_score * self.amaf_proportion + child_uct_score * (1 - self.amaf_proportion)
+          # child_score = child_amaf_score * self.amaf_proportion + child_uct_score * (1 - self.amaf_proportion)
+          child_score = child_uct_score
+
           # print(child_uct_score, child_amaf_score)
 
           if child_score > max_score:
@@ -207,12 +206,14 @@ class UCTStrategy:
         p0_win_count = 0
         simulation_count = self.playout_count
 
-        for _ in range(simulation_count):
-          game_copy = current_node.game.copy()
-          playout_p0_win_count, playout_counts = game_copy.playout_amaf()
+        # for _ in range(simulation_count):
+        #   game_copy = current_node.game.copy()
+        #   playout_p0_win_count, playout_counts = game_copy.playout_amaf()
 
-          p0_win_count += playout_p0_win_count
-          amaf_change += playout_counts * (playout_p0_win_count * 2 - 1)
+        #   p0_win_count += playout_p0_win_count
+        #   amaf_change += playout_counts * (playout_p0_win_count * 2 - 1)
+
+        p0_win_count = engine(current_node.game, generator=generator, playout_count=simulation_count) * simulation_count
 
         # print(f'Simulation count: {simulation_count}, P0 win count: {p0_win_count}')
 
@@ -239,7 +240,7 @@ class UCTStrategy:
 
     p0_win_fractions = np.array([
       ((child_node := self.nodes[move_hash]).p0_win_count / child_node.simulation_count)
-      if (move_hash != 0) and (move_hash in self.nodes) else -1
+      if (move_hash != 0) and (move_hash in self.nodes) else np.nan
       for move_hash in move_hashes
     ])
 
@@ -248,19 +249,23 @@ class UCTStrategy:
     # print(p0_win_fractions)
 
     win_fractions = game.translate_win_fraction(p0_win_fractions)
+    # print(p0_win_fractions)
     # print(win_fractions)
-    move = np.argmax(win_fractions)
-
-    if move_hashes[move] == 0:
+    if np.isnan(win_fractions).all():
       return None
 
-    return move
+    return np.nanargmax(win_fractions)
+
+    # if move_hashes[move] == 0:
+    #   return None
+
+    # return move
 
 
 def measure(strategy1: Strategy, strategy2: Strategy, /, *, repeat_count: int = 1000):
   strategy1_win_count = 0
 
-  for _ in range(repeat_count):
+  for _ in trange(repeat_count):
     game = Game()
 
     s1 = strategy1.copy()
@@ -271,6 +276,7 @@ def measure(strategy1: Strategy, strategy2: Strategy, /, *, repeat_count: int = 
     strategy1_win_count += p0_win_count
 
     print('Length', game.length)
+    print('Fraction', strategy1_win_count / (_ + 1))
     game.print()
 
   return strategy1_win_count / repeat_count
@@ -302,30 +308,42 @@ def measure_multithreaded(strategy1: Strategy, strategy2: Strategy, /, *, repeat
 if __name__ == '__main__':
   # np.random.seed(0)
 
-  g = Game()
-  s1 = UCTStrategy()
+  if False:
+    g = Game()
+    s1 = UCTStrategy()
 
-  for _ in tqdm(range(1000)):
-    if g.p0_win_count() is not None:
-      break
+    for _ in tqdm(range(1000)):
+      if g.p0_win_count() is not None:
+        break
 
-    distance = np.random.randint(5) + 1
+      distance = np.random.randint(5) + 1
 
-    if g.turn_p0:
-      move = s1.play(g, distance)
-    else:
-      move = RANDOM_STRATEGY.play(g, distance)
+      if g.turn_p0:
+        move = s1.play(g, distance)
+      else:
+        move = RANDOM_STRATEGY.play(g, distance)
 
-    if move is not None:
-      g.play(move, distance)
-    else:
-      g.play_skip()
+      if move is not None:
+        g.play(move, distance)
+      else:
+        g.play_skip()
+
+      g.print()
+
 
     g.print()
 
-  # g.print()
 
-  # t0 = time()
-  # print('Strategy 1 win fraction:', measure(UCTStrategy(), RandomStrategy(), repeat_count=1))
-  # t1 = time()
-  # print('Execution time:', t1 - t0)
+  if True:
+    t0 = time()
+    print('Strategy 1 win fraction:', measure(UCTStrategy(), FlatStrategy(), repeat_count=100))
+    t1 = time()
+    print('Execution time:', t1 - t0)
+
+
+  if False:
+    Game().run_strategies(
+      UCTStrategy(),
+      FlatStrategy(playout_count=1000),
+      display=True,
+    )
