@@ -201,7 +201,7 @@ class Game:
 
     assert self.check_integrity()
 
-  def run_strategies(self, p0_strategy: Strategy, p1_strategy: Strategy):
+  def run_strategies(self, p0_strategy: Strategy, p1_strategy: Strategy, *, display: bool = False):
     while True:
       p0_win_count = self.p0_win_count()
 
@@ -219,6 +219,10 @@ class Game:
         self.play(move, distance)
       else:
         self.play_skip()
+
+      if display:
+        self.print()
+
 
   def print(self):
     COLOR_BRIGHT_BLACK = '\033[90m'
