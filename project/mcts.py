@@ -9,7 +9,7 @@ from typing import Optional
 import numpy as np
 from tqdm import tqdm
 
-from .game import MAX_DISTANCE, Game, Strategy
+from .game import BOARD_SIZE, MAX_DISTANCE, Game, Strategy
 from .gpu import GPUBackend, GPUPlayoutEngine, PlayoutEngine
 
 
@@ -78,17 +78,22 @@ class FlatStrategy:
     return best_move_column
 
 
+# engine = GPUPlayoutEngine()
+
 @dataclass(slots=True)
 class Node:
   game: Game
   parent_hash: Optional[int]
 
+  # Positive if p0 wins
+  amaf: np.ndarray = field(default_factory=(lambda: np.zeros((BOARD_SIZE, MAX_DISTANCE), dtype=np.int32)), init=False, repr=False)
   children_simulation_count: int = 0
   p0_win_count: int = 0
   simulation_count: int = 0
 
 @dataclass(slots=True)
 class UCTStrategy:
+  amaf_proportion: float = 0.5
   expansion_count: int = 10
   exploration_constant: float = math.sqrt(2)
   playout_count: int = 10
@@ -113,9 +118,6 @@ class UCTStrategy:
         current_move_hashes = current_node.game.legal_moves(current_distance)
 
         def get_uct_score(node: Node):
-          # if node.simulation_count is None:
-          #   return -1.0
-
           # print(node.game.hash)
           # if current_node.children_simulation_count == 0:
           #   pprint([*ancestor_nodes, current_node, node])
@@ -123,7 +125,10 @@ class UCTStrategy:
           #   print(node.game.p0_win_count())
           #   print(current_move_hashes)
 
-          if node.p0_win_count is not None:
+          # if node.p0_win_count is not None:
+          #   return -1
+
+          if current_node.children_simulation_count == 0:
             return -1
 
           return (
@@ -132,8 +137,8 @@ class UCTStrategy:
           )
 
         created_child_node = False
-        max_uct_score_move_column: Optional[int] = None # None = no move possible, only skip is possible
-        max_uct_score: float = -1 # inf = exact choice
+        max_score_move_column: Optional[int] = None # None = no move possible, only skip is possible
+        max_score: float = -1 # inf = exact choice
 
         for move_column, move_hash in enumerate(current_move_hashes):
           if move_hash == 0:
@@ -149,23 +154,27 @@ class UCTStrategy:
             self.nodes[child_game.hash] = child_node
 
             created_child_node = True
-            max_uct_score_move_column = move_column
-            max_uct_score = math.inf
+            max_score_move_column = move_column
+            max_score = math.inf
 
             break
 
           # UCT score of current player
           child_uct_score = get_uct_score(child_node)
+          child_amaf_score = child_node.amaf[move_column, current_distance - 1] / child_node.simulation_count * (1 if child_node.game.turn_p0 else -1)
 
-          if child_uct_score > max_uct_score:
-            max_uct_score = child_uct_score # type: ignore
-            max_uct_score_move_column = move_column
+          child_score = child_amaf_score * self.amaf_proportion + child_uct_score * (1 - self.amaf_proportion)
+          # print(child_uct_score, child_amaf_score)
+
+          if child_score > max_score:
+            max_score = child_score # type: ignore
+            max_score_move_column = move_column
 
         # ancestor_weight = 1 / len(current_move_hashes.nonzero()[0]) if current_node.game.turn_p0 != game.turn_p0 else 1
         ancestor_weight = 0.0
 
         # If no move is possible i.e. current_move_hashes is all zeros
-        if max_uct_score_move_column is None:
+        if max_score_move_column is None:
           child_game = current_node.game.copy()
           # child_game.print()
           child_game.play_skip()
@@ -180,11 +189,12 @@ class UCTStrategy:
           current_node = child_node
         else:
           ancestor_nodes.append((current_node, ancestor_weight))
-          current_node = self.nodes[current_move_hashes[max_uct_score_move_column]]
+          current_node = self.nodes[current_move_hashes[max_score_move_column]]
 
         if created_child_node:
           break
 
+      amaf_change = np.zeros((BOARD_SIZE, MAX_DISTANCE), dtype=np.int32)
       current_p0_win_count =  current_node.game.p0_win_count()
 
       if current_p0_win_count is not None:
@@ -199,17 +209,22 @@ class UCTStrategy:
 
         for _ in range(simulation_count):
           game_copy = current_node.game.copy()
-          p0_win_count += game_copy.run_strategies(RANDOM_STRATEGY, RANDOM_STRATEGY)
+          playout_p0_win_count, playout_counts = game_copy.playout_amaf()
+
+          p0_win_count += playout_p0_win_count
+          amaf_change += playout_counts * (playout_p0_win_count * 2 - 1)
 
         # print(f'Simulation count: {simulation_count}, P0 win count: {p0_win_count}')
 
-      current_node.simulation_count = simulation_count
-      current_node.p0_win_count = p0_win_count
+      current_node.amaf += amaf_change
+      current_node.simulation_count += simulation_count
+      current_node.p0_win_count += p0_win_count
 
-      for ancestor_index, (ancestor_node, ancestor_weight) in enumerate(ancestor_nodes):
+      for ancestor_index, (ancestor_node, _) in enumerate(ancestor_nodes):
         ancestor_node.children_simulation_count += simulation_count
 
         if ancestor_index != 0:
+          ancestor_node.amaf += amaf_change
           ancestor_node.p0_win_count += p0_win_count
           ancestor_node.simulation_count += simulation_count
 
@@ -285,7 +300,7 @@ def measure_multithreaded(strategy1: Strategy, strategy2: Strategy, /, *, repeat
 
 
 if __name__ == '__main__':
-  np.random.seed(0)
+  # np.random.seed(0)
 
   g = Game()
   s1 = UCTStrategy()
